@@ -481,7 +481,7 @@ const cms = {
         ['<i class="bi bi-folder2-open"></i> ' + lang('文件资源管理器', 'explorer.name'), 'openapp(\'explorer\')'],
         ['<i class="bi bi-search"></i> 搜索', `$('#search-btn').addClass('show');hide_startmenu();
         $('#search-win').addClass('show-begin');setTimeout(() => {$('#search-win').addClass('show');
-        $('#search-input').focus();}, 0);`],
+        $('#search-input').focus();},200);`],
         '<hr>',
         ['<i class="bi bi-power"></i> 关机', 'window.location=\'shutdown.html\''],
         ['<i class="bi bi-arrow-counterclockwise"></i> 重启', 'window.location=\'reload.html\''],
@@ -847,8 +847,8 @@ function hidedescp(e) {
 
 const nts = {
     'about': {
-        cnt: lang(`<p class="tit">Windows 12 网页版</p>
-            <p>Windows 12 网页版是一个开放源项目,<br />
+        cnt: lang(`<p class="tit">${isTauriApp() ? '关于 Win12-desktop' : 'Win12 网页版'}</p>
+            <p>${isTauriApp() ? 'Win12-desktop 是 Win12 网页版的桌面应用版本，' : 'Win12 网页版是一个开放源项目，'}<br />
             希望让用户在网络上预先体验 Windows 12,<br />
             内容可能与 Windows 12 正式版本不一致。<br />
             使用标准网络技术,例如 HTML, CSS 和 JS<br />
@@ -864,6 +864,7 @@ const nts = {
     'feedback': {
         cnt: `<p class="tit">${lang('反馈', 'nts.feedback.name')}</p>
             <p>${lang('我们非常注重用户的体验与反馈', 'nts.feedback.txt')}</p>
+            <p><a class="a" onclick="window.open('https://nerimity.com/i/w2lvf','_blank');" win12_title="在浏览器新窗口打开链接" onmouseenter="showdescp(event)" onmouseleave="hidedescp(event)">${lang('欢迎通过 Nerimity 向我们寻求帮助或提交反馈', 'nts.feedback.txt1')}</a></p>
             <list class="new">
                 <a class="a" onclick="window.open('https://github.com/win12-online/win12/issues','_blank');" win12_title="在浏览器新窗口打开链接" onmouseenter="showdescp(event)" onmouseleave="hidedescp(event)">${lang('在 github 上提交 issue (需要 github 账户)', 'nts.feedback.github')}</a>
             </list>`,
@@ -948,8 +949,8 @@ const nts = {
              <p>你可以使用此 AI 助手帮助你更快地完成工作，此 AI 助手基于 Deepseek v4 pro 模型 (有人用 Win12 工作？)<br>
             也请适当使用，不要谈论敏感、违规话题，<br>请有身为一个人类最基本的道德底线。<br>根据相关法律法规，我们不向欧盟用户提供服务。<br>
             在此特别感谢云智 API(yunzhiapi.cn) 为本项目提供赞助！</p>
-            <a class="a" onclick="window.open('readme/legal/privacy-policy-copliot','_blank');" win12_title="在浏览器新窗口打开链接">《隐私政策》</a><br>
-            <a class="a" onclick="window.open('readme/legal/user-agreement-copliot','_blank');" win12_title="在浏览器新窗口打开链接">《用户协议》</a><br>
+            <a class="a" onclick="window.open('https://win12-online.github.io/win12/readme/legal/privacy-policy-copliot','_blank');" win12_title="在浏览器新窗口打开链接">《隐私政策》</a><br>
+            <a class="a" onclick="window.open('https://win12-online.github.io/win12/readme/legal/user-agreement-copliot','_blank');" win12_title="在浏览器新窗口打开链接">《用户协议》</a><br>
             <a class="a" onclick="window.open('https://status.win12.tech/status/win12/','_blank');" win12_title="在浏览器新窗口打开链接">状态监测</a><br>
             <a class="a" onclick="window.open('https://www.yunzhiapi.cn/','_blank');" win12_title="在浏览器新窗口打开链接">云智 API 官网</a>
         `,
@@ -2568,7 +2569,107 @@ function saveDesktop() {
         localStorage.setItem(key, value);
     });
 }
+//global
+const parentEl = $('#desktop')[0];
+let parentRect = parentEl.getBoundingClientRect();
+const cell = 83; // 单位尺寸
+const gap = 10; // 单位间隔
+const padding = 20; // 偏移
+const cols = Math.max(1, Math.floor((parentRect.width - padding * 2 + gap) / (cell + gap)));
+const rows = Math.max(1, Math.floor((parentRect.height - padding * 2 + gap) / (cell + gap)));
 
+function desktopMove(elt, e) {
+    if (!edit_mode) return;// 编辑模式有效
+    e = e || window.event;
+    // 阻止桌面响应
+    try { e.stopPropagation(); } catch (err) { }
+    try { e.preventDefault(); } catch (err) { }
+    let rect = elt.getBoundingClientRect();
+    let deltaLeft = (e.touches ? e.touches[0].clientX : e.clientX) - rect.left;
+    let deltaTop = (e.touches ? e.touches[0].clientY : e.clientY) - rect.top;
+    elt.style.position = 'fixed';
+    elt.style.width = `${rect.width}px`;
+    elt.style.height = `${rect.height}px`;
+    elt.classList.add('moving');
+    elt.classList.add('notrans');
+
+    function moving(ev) {
+        let clientX = ev.type.match('touch') ? ev.touches[0].clientX : ev.clientX;
+        let clientY = ev.type.match('touch') ? ev.touches[0].clientY : ev.clientY;
+
+        let leftPx = clientX - deltaLeft;
+        let topPx = clientY - deltaTop;
+        // 与网格对齐
+        //const parentRect = $('#desktop')[0].getBoundingClientRect();
+        //const cell = 83; // 单位尺寸
+        //const gap = 10; // 单位间隔
+        //const padding = 20; // 偏移
+        let relLeft = leftPx - parentRect.left - padding;
+        let relTop = topPx - parentRect.top - padding;
+        //const cols = Math.max(1, Math.floor((parentRect.width - padding * 2 + gap) / (cell + gap)));
+        //const rows = Math.max(1, Math.floor((parentRect.height - padding * 2 + gap) / (cell + gap)));
+        let col = Math.round(relLeft / (cell + gap));
+        let row = Math.round(relTop / (cell + gap));//近似是第几格
+        if (col < 0) col = 0;
+        if (col >= cols) col = cols - 1;
+        if (row < 0) row = 0;
+        if (row >= rows) row = rows - 1;
+        const snapLeft = parentRect.left + padding + col * (cell + gap);
+        const snapTop = parentRect.top + padding + row * (cell + gap);
+        elt.style.left = `${snapLeft}px`;
+        elt.style.top = `${snapTop}px`;
+    }
+
+    function up() {
+        elt.classList.remove('notrans');
+        elt.classList.remove('moving');
+        document.body.style.userSelect = '';
+        // 将固定坐标转换为相对于桌面的绝对位置
+        //const parentRect = $('#desktop')[0].getBoundingClientRect();
+        const left = parseFloat(elt.style.left || 0) - parentRect.left;
+        const top = parseFloat(elt.style.top || 0) - parentRect.top;
+        elt.style.position = 'absolute';
+        elt.style.left = `${left}px`;
+        // 存储网格坐标
+        elt.setAttribute('data-grid-left', elt.style.left);
+        elt.setAttribute('data-grid-top', elt.style.top);
+        elt.style.top = `${top}px`;
+        page.onmousemove = null;
+        page.ontouchmove = null;
+        page.onmouseup = null;
+        page.ontouchend = null;
+        page.ontouchcancel = null;
+    }
+
+    moving(e);
+    // 不要出现选择框
+    document.body.style.userSelect = 'none';
+    page.onmousemove = moving;
+    page.ontouchmove = moving;
+    page.onmouseup = up;
+    page.ontouchend = up;
+    page.ontouchcancel = up;
+}
+
+function attachDesktopDrag() {
+    const parent = $('#desktop')[0];
+    if (!parent) return;
+    const children = Array.from(parent.children).filter(n => n.tagName.toLowerCase() === 'div' || n.tagName.toLowerCase() === 'a');
+    children.forEach(ch => {
+        ch.ondragstart = () => false;
+        ch.onmousedown = (e) => {
+            //防止桌面响应
+            try { e.stopPropagation(); } catch (err) { }
+            try { e.preventDefault(); } catch (err) { }
+            desktopMove(ch, e);
+        };
+        ch.ontouchstart = (e) => {
+            try { e.stopPropagation(); } catch (err) { }
+            try { e.preventDefault(); } catch (err) { }
+            desktopMove(ch, e);
+        };
+    });
+}
 function setIcon() {
     // return;
     if (!Array.isArray(JSON.parse(localStorage.getItem('desktop')))) {
@@ -2680,12 +2781,28 @@ document.getElementsByTagName('body')[0].onload = () => {
         $('.window.whiteboard>.titbar>p').text('Whiteboard');
         isDark = false;
     }
+    // 桌面版：从 Tauri settings.json 同步 panic-color 到 localStorage
+    if (window.win12Native && window.win12Native.isTauri && window.win12Native.isTauri()) {
+        (async function() {
+            try {
+                var json = await window.win12Native.readSettings();
+                if (json) {
+                    var settings = JSON.parse(json);
+                    if (settings['panic-color']) {
+                        localStorage.setItem('panic-color', settings['panic-color']);
+                    }
+                }
+            } catch (e) {
+                console.error('Failed to load settings from Tauri:', e);
+            }
+        })();
+    }
     if (localStorage.getItem('color1')) {
         $(':root').css('--theme-1', localStorage.getItem('color1'));
         $(':root').css('--theme-2', localStorage.getItem('color2'));
     }
     setIcon();//加载桌面图标
-
+	attachDesktopDrag();
     // 所以这个东西为啥要在开机的时候加载？
     // 不应该在 python.init 里面吗？
     //     (async function () {
@@ -2767,9 +2884,10 @@ if (urlParams.get('skip_login') !== '1') {
     $('#loginback').css('display', 'flex');
 }
 
+// 共用同一个开机提示；根据运行环境在 nts.about 中选择对应名称。
+shownotice('about');
 // PWA 应用
 if (!location.href.match(/((\d|[1-9]\d|1\d\d|2[0-4]\d|25[0-5])\.){3}(\d|[1-9]\d|1\d\d|2[0-4]\d|25[0-5])(?::(?:[0-9]|[1-9][0-9]{1,3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5]))/) && !location.href.match('localhost') && !urlParams.get('develop')) {
-    shownotice('about');
     navigator.serviceWorker.register('sw.js', { updateViaCache: 'none', scope: './' }).then(reg => {
 
         reg.update();
@@ -2811,6 +2929,38 @@ function sendToSw(msg) {
 const setData = (k, v) => {
     localStorage.setItem(k, v);
 };
+
+/**
+ * 获取蓝屏颜色 (panic-color)
+ * 优先级：Tauri settings.json > localStorage > 默认值 #136fca
+ */
+function getPanicColor() {
+    // 先尝试从 localStorage 读取 (网页版使用)
+    var color = localStorage.getItem('panic-color');
+    if (color) return color;
+    return '#136fca';
+}
+
+/**
+ * 设置蓝屏颜色 (panic-color)
+ * 网页版 -> localStorage
+ * 桌面版 -> Tauri settings.json
+ */
+async function setPanicColor(color) {
+    if (window.win12Native && window.win12Native.isTauri && window.win12Native.isTauri()) {
+    // 桌面版：写入 Tauri settings.json
+        try {
+            var json = await window.win12Native.readSettings();
+            var settings = json ? JSON.parse(json) : {};
+            settings['panic-color'] = color;
+            await window.win12Native.writeSettings(settings);
+        } catch (e) {
+            console.error('Failed to save panic color to Tauri settings:', e);
+        }
+    }
+    // 网页版：写入 localStorage
+    localStorage.setItem('panic-color', color);
+}
 
 /**
  * 将秒数换算为可读的时间格式
