@@ -3,6 +3,7 @@ let apps = {
     setting: {
         init: () => {
             $('#win-setting>.menu>list>a.home')[0].click();
+            apps.setting.syncLanguageSelect();
             $('#win-setting>.page>.cnt.update>.setting-list>div:last-child>.alr>a.checkbox')[localStorage.getItem('autoUpdate') == 'true' ? 'addClass' : 'removeClass']('checked');
             apps.setting.checkUpdate();
             // 加载已保存的蓝屏颜色
@@ -16,6 +17,22 @@ let apps = {
             $('#win-setting>.page>.cnt.' + name).addClass('show');
             $('#win-setting>.menu>list>a.check').removeClass('check');
             $('#win-setting>.menu>list>a.' + name).addClass('check');
+            if (name === 'time') apps.setting.timePanel('overview');
+        },
+        timePanel: (name) => {
+            const $time = $('#win-setting>.page>.cnt.time');
+            $time.find('.time-panel.show').removeClass('show');
+            $time.find('.time-panel.' + name).addClass('show');
+            $time.scrollTop(0);
+        },
+        changeLanguage: (code) => {
+            localStorage.setItem('lang', code);
+            window.location.reload();
+        },
+        syncLanguageSelect: () => {
+            const savedLanguage = localStorage.getItem('lang');
+            const language = savedLanguage === 'en-US' ? 'en' : (savedLanguage || 'auto');
+            $('#win-setting .languageSelect').val(language);
         },
         theme_get: () => {
             $('#set-theme').html(`<loading><svg width="30px" height="30px" viewBox="0 0 16 16">
@@ -900,6 +917,7 @@ let apps = {
     },
     camera: {
         requestGeneration: 0,
+        deviceLostTimer: null,
         init: () => {
             if (!localStorage.getItem('camera')) {
                 showwin('camera-notice');
@@ -908,6 +926,8 @@ let apps = {
             if (localStorage.getItem('camera')) {
                 const requestGeneration = ++apps.camera.requestGeneration;
                 apps.camera.streaming = false;
+                apps.camera.stopStream();
+                apps.camera.hideError();
                 apps.camera.video = $('#win-camera video')[0];
                 const video = apps.camera.video;
                 apps.camera.canvas = $('#win-camera canvas')[0];
@@ -915,6 +935,12 @@ let apps = {
                 apps.camera.context.fillStyle = '#aaa';
                 apps.camera.downloadLink = $('#win-camera a')[0];
                 // apps.camera.control = document.querySelector('#win-camera>.control')
+                if (!navigator.mediaDevices || typeof navigator.mediaDevices.getUserMedia != 'function') {
+                    if (requestGeneration === apps.camera.requestGeneration) {
+                        apps.camera.showError();
+                    }
+                    return;
+                }
                 navigator.mediaDevices.getUserMedia({ video: true, audio: false })
                     .then(stream => {
                         if (requestGeneration !== apps.camera.requestGeneration) {
@@ -922,12 +948,13 @@ let apps = {
                             return;
                         }
                         video.srcObject = stream;
+                        apps.camera.watchTracks(stream, requestGeneration);
                         const playing = video.play();
                         if (playing && typeof playing.catch == 'function') playing.catch(() => {});
                     })
                     .catch(() => {
                         if (requestGeneration === apps.camera.requestGeneration) {
-                            hidewin('camera');
+                            apps.camera.showError();
                         }
                     });
                 apps.camera.video.addEventListener('canplay', () => {
@@ -945,10 +972,58 @@ let apps = {
                 hidewin('camera');
             }
         },
+        stopStream: () => {
+            clearTimeout(apps.camera.deviceLostTimer);
+            apps.camera.deviceLostTimer = null;
+            const video = apps.camera.video;
+            const stream = video && video.srcObject;
+            if (stream) {
+                stream.getTracks().forEach((track) => track.stop());
+            }
+            if (video) video.srcObject = null;
+        },
+        markDeviceLost: (requestGeneration) => {
+            if (requestGeneration !== apps.camera.requestGeneration) return;
+            apps.camera.streaming = false;
+            const video = apps.camera.video;
+            if (video) video.srcObject = null;
+            apps.camera.showError();
+        },
+        watchTracks: (stream, requestGeneration) => {
+            const tracks = typeof stream.getVideoTracks == 'function' ? stream.getVideoTracks() : [];
+            tracks.forEach((track) => {
+                track.addEventListener('ended', () => {
+                    apps.camera.markDeviceLost(requestGeneration);
+                });
+                track.addEventListener('mute', () => {
+                    if (requestGeneration !== apps.camera.requestGeneration) return;
+                    clearTimeout(apps.camera.deviceLostTimer);
+                    apps.camera.deviceLostTimer = setTimeout(() => {
+                        apps.camera.markDeviceLost(requestGeneration);
+                    }, 3000);
+                });
+                track.addEventListener('unmute', () => {
+                    if (requestGeneration !== apps.camera.requestGeneration) return;
+                    clearTimeout(apps.camera.deviceLostTimer);
+                    apps.camera.deviceLostTimer = null;
+                    apps.camera.hideError();
+                });
+            });
+        },
+        hideError: () => {
+            $('#win-camera>.error').removeClass('show');
+        },
+        showError: () => {
+            $('#win-camera>.error').addClass('show');
+        },
         clearCanvas: () => {
             apps.camera.context.fillRect(0, 0, canvas.width, canvas.height);
         },
         takePhoto: () => {
+            if (!apps.camera.streaming) {
+                apps.camera.showError();
+                return;
+            }
             apps.camera.context.drawImage(apps.camera.video, 0, 0, apps.camera.canvas.width, apps.camera.canvas.height);
             apps.camera.downloadLink.href = apps.camera.canvas.toDataURL('image/png');
             apps.camera.downloadLink.download = 'photo.png';
@@ -1805,7 +1880,7 @@ let apps = {
             const selector = apps.about.contributorsSelector();
             apps.about.run_loading(selector);
             // 实时获取项目贡献者
-            $.get(`https://api.github.com/repos/${apps.about.repo()}/contributors`).then(cs => {
+            $.get(`https://api.github.com/repos/${apps.about.repo()}/contributors?per_page=100`).then(cs => {
                 setTimeout(() => {
                     $(selector).html('');
                     cs.forEach(c => {
@@ -1815,22 +1890,31 @@ let apps = {
                 }, 200);
             });
         },
-        get_star: () => {
-            const selector = apps.about.starSelector();
-            apps.about.run_loading(selector);
-            fetch(`https://api.github.com/repos/${apps.about.repo()}`)
-                .then(response => response.json())
-                .then(data => {
-                    setTimeout(() => {
-                        const starCount = data.stargazers_count;
-                        $(selector).html('<div style="display: flex;"><p>&emsp;&emsp;Star 数量：' + starCount + ' (实时数据)</p>&emsp;<a class="button" onclick="apps.about.get_star()"><i class="bi bi-arrow-clockwise"></i> 刷新</a></div>');
-                    }, 200);
-                })
-                .catch(error => {
-                    console.error('获取 star 数量时出错：', error);
-                    $(selector).html('<div style="display: flex;"><p>&emsp;&emsp;哎呀！出错了！</p>&emsp;<a class="button" onclick="apps.about.get_star()"><i class="bi bi-arrow-clockwise"></i> 重试</a></div>');
-                });
-        }
+    	get_star: () => {
+        	const selector = apps.about.starSelector();
+        	apps.about.run_loading(selector);
+        	fetch(`https://api.github.com/repos/${apps.about.repo()}`)
+            	.then(response => response.json())
+            	.then(data => {
+                	setTimeout(() => {
+                    	const starCount = data.stargazers_count;
+                    	if (starCount === undefined) {
+                        	apps.about.get_star_fail(selector);
+                        	return;
+                		}
+                    	$(selector).html('<div style="display: flex;"><p>&emsp;&emsp;Star 数量：' + starCount + ' (实时数据)</p>&emsp;<a class="button" onclick="apps.about.get_star()"><i class="bi bi-arrow-clockwise"></i> 刷新</a></div>');
+                	}, 200);
+            })
+            .catch(error => {
+                console.error('获取 star 数量时出错：', error);
+                apps.about.get_star_fail(selector);
+            });
+    },
+
+    get_star_fail: selector => {
+        setTimeout(() => {
+            $(selector).html('<div style="display: flex;"><p>&emsp;&emsp;Star 数量：获取失败</p>&emsp;<a class="button" onclick="apps.about.get_star()"><i class="bi bi-arrow-clockwise"></i> 重试</a></div>');
+       }, 200);
     },
     notepad: {
         _pendingContent: null,
